@@ -1,0 +1,297 @@
+<#
+.SYNOPSIS
+  A script to install Splunk Universal Forwarder and Sysmon
+.DESCRIPTION
+  This script is to be deployed by GPO and install both Splunk Universal Forwarder and Sysmon.
+  By default, your Splunk Forwarder installer should be named splunkforwarder.msi. You will require a directory in root of C:\
+  called Share. Place the splunkforwarder.msi, sysmon64.exe sysmonconfig-export.xml, inputs.conf and outputs.conf in c:\Share
+  This path can be changed by the $fileshare variable.
+.INPUTS
+  None
+.OUTPUTS
+  None
+.NOTES
+  Version:        1.0.4.beta
+  Author:         Acidcrash376
+  Creation Date:  23/06/2021
+  Last Update:	  24/06/2021
+  Purpose/Change: Initial release for testing
+  Web:            https://github.com/acidcrash376/TBC
+.EXAMPLE
+  ./Install-SplunkForwarder.ps1
+.TODO
+  -Add verbose optional output
+  -Change variables to read from files instead
+#>
+
+########################
+# Edit these variables #
+########################
+$ErrorLogfile = "\\localhost\c$\$(gc env:computername)\Error.log"         # Path for Error Log, edit the path
+$InstallLogfile = "\\localhost\c$\$(gc env:computername)\Install.log"     # Path for Install Log, edit the path
+$fileshare = "\\localhost\c$\"                                            # Path for fileshare, edit the path
+$SplunkU = "splunk"                                                       # Define the local Splunk management user
+$SplunkP = "password"                                                     # Define the local Splunk management user password
+$rindex = "127.0.0.1:9997"                                                # Define the Splunk indexer IP and port
+#########################
+# Don't edit after here #
+#########################
+
+
+
+
+
+
+Function Write-ErrorLogHead
+{
+   Param ([string]$logstring)
+   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   Add-content $ErrorLogfile -value $logstring
+}
+
+Function Write-InstallLogHead
+{
+   Param ([string]$logstring)
+   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   Add-content $InstallLogfile -value $logstring
+}
+
+Function Write-ErrorLog
+{
+   Param ([string]$logstring)
+   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   Add-content $ErrorLogfile -value $logstring
+}
+
+Function Write-InstallLog
+{
+   Param ([string]$logstring)
+   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   Add-content $InstallLogfile -value $logstring
+}
+
+Function Get-DTG
+{
+    $(((Get-Date).ToUniversalTime()).ToString("yyyy-MM-dd HH:mm:ssZ")) # Date Time Group suffix for logging, YYYY-MM-DD HH:mm:ss Zulu time
+}
+
+Function Test-SplunkForwarder () 
+{
+	Write-InstallLog -logstring "$(Get-DTG) - [Function: Test-SplunkForwarder]"
+    $software = "UniversalForwarder";
+	$installed = (Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where { $_.DisplayName -eq $software }) -ne $null
+
+	If(-Not $installed) {
+        Write-Host "Splunk is not installed" # temp. delete when fixed
+        Write-InstallLog -logstring "$(Get-DTG) - Splunk Universal Forwarder is not currently installed"
+        Install-SplunkForwarder
+	} else {
+		Write-Host "Splunk is installed" # temp. delete when fixed
+        Write-InstallLog -logstring "$(Get-DTG) - Splunk Universal Forwarder is installed"
+	}
+}
+
+Function Test-SMBConnection () 
+{
+    Write-InstallLog -logstring "$(Get-DTG) - [Function: Test-SMBConnection]"
+	$test = Test-Path -Path $fileshare
+	if($test) {
+        Write-InstallLog -logstring "$(Get-DTG) - $fileshare successfully reached"
+	} else {
+		Write-ErrorLog -logstring "$(Get-DTG) - $fileshare fileshare could not be reached"
+        exit
+	}
+}
+
+Function Check-ConfHash ()
+{                                                           
+    Write-InstallLog -logstring "$(Get-DTG) - [Function: Check-ConfHash]"
+    $inputsconf = $fileshare+'Share\inputs.conf'                                                 # Define the variable for the fileshare path to inputs.conf
+    $srvInputsHash = Get-FileHash -Path $inputsconf -Algorithm SHA256                            # SHA256 Hash the inputs.conf on the fileshare
+    Write-InstallLog -logstring "$(Get-DTG) - $srvInputsHash"                                          # Log the hash
+
+    $Outputsconf = $fileshare+'Share\Outputs.conf'                                               # Define the variable for the fileshare path to outouts.conf
+    $srvOutputsHash = Get-FileHash -Path $Outputsconf -Algorithm SHA256                          # SHA256 Hash the outputs.conf on the fileshare 
+    Write-InstallLog -logstring "$(Get-DTG) - $srvOutputsHash"                                         # Log the hash
+
+    $LocalInputsConf = "C:\Program Files\SplunkUniversalForwarder\etc\apps\SplunkUniversalForwarder\local\inputs.conf"  # Define the variable for the local path to inputs.conf
+    $LocalOutputsConf = "C:\Program Files\SplunkUniversalForwarder\etc\apps\SplunkUniversalForwarder\local\outputs.conf"# Define the variable for the local path to outputs.conf
+
+    $testlocalinputsconf = Test-Path $LocalInputsConf                                            # Test the path of the local inputs.conf for the if statement:
+                                                                                                 # If present, do the hashes match: Yes, move on. No, replace with file from server
+                                                                                                 # If not present, copy from file server
+                                                                                                  
+    $testlocaloutputsconf = Test-Path $LocalOutputsConf                                          # Test the path of the local outputs.conf for the if statement:
+                                                                                                 # If present, do the hashes match: Yes, move on. No, replace with file from server
+                                                                                                 # If not present, copy from file server    
+
+    $srvInputsHashsha256 = ${srvInputsHash}.Hash                                                 # Define the variable for the server inputs.conf hash
+    $srvOutputshashsha256 = ${srvOutputsHash}.Hash                                               # Define the variable for the server outputs.conf hash
+
+    If($testlocalinputsconf)                                                                     # If the test of the local inputs.conf is true...
+    {
+
+        Write-InstallLog -logstring "$(Get-DTG) - Inputs Path exists"                                  # Log it
+        $localInputsHash = Get-FileHash -Path $LocalInputsConf -Algorithm SHA256                 # Hash the local inputs.conf and define as a variable for comparing
+        Write-InstallLog -logstring "$(Get-DTG) - $localinputshash"                                    # Log it
+
+        If($srvInputsHashsha256 -eq ${localInputsHash}.hash)                                     # If inputs.conf hashes match
+        {
+
+            Write-InstallLog -logstring "$(Get-DTG) - Inputs.conf match, no action required"           # Log it, no action required
+
+        } else {
+        
+            Write-InstallLog -logstring "$(Get-DTG) - Inputs.conf do not match, replacing the config"  # If they don't match, log it
+            Copy-Item $inputsconf -Destination $LocalInputsConf -Force                           # Copy the file from the file server and overwrite the local version
+
+        }
+    } else {
+    
+        Write-InstallLog -logstring "$(Get-DTG) - Inputs Path does not exist"                          # If inputs.conf is not present, log it
+        Copy-Item $inputsconf -Destination $LocalInputsConf -Force                               # Copy the inputs.conf from the fileserver to the local machine
+        Write-InstallLog -logstring "$(Get-DTG) - inputs.conf copied from fileserver"                  # Log it
+    
+    }
+
+    If($testlocalOutputsconf)                                                                    # If the test of the local inputs.conf is true...
+    {
+
+        Write-InstallLog -logstring "$(Get-DTG) - Outputs Path exists"                                 # Log it
+        $localInputsHash = Get-FileHash -Path $LocalOutputsConf -Algorithm SHA256                # Hash the local Outputs.conf and define as a variable for comparing
+        Write-InstallLog -logstring "$(Get-DTG) - $localOutputshash"                                   # Log it
+
+        If($srvOutputsHashsha256 -eq ${localOutputsHash}.hash)                                   # If Outputs.conf hashes match
+        {
+
+            Write-InstallLog -logstring "$(Get-DTG) - Outputs.conf match, no action required"          # Log it, no action required
+
+        } else {
+        
+            Write-InstallLog -logstring "$(Get-DTG) - Outputs.conf do not match, replacing the config" # If they don't match, log it
+            Copy-Item $Outputsconf -Destination $LocalOutputsConf -Force                         # Copy the file from the file server and overwrite the local version
+
+        }
+    } else {
+    
+        Write-InstallLog -logstring "$(Get-DTG) - Outputs Path does not exist"                         # If Outputs.conf is not present, log it
+        Copy-Item $Outputsconf -Destination $LocalOutputsConf -Force                             # Copy the Outputs.conf from the fileserver to the local machine
+        Write-InstallLog -logstring "$(Get-DTG) - Outputs.conf copied from fileserver"                 # Log it
+    
+    }
+}
+
+Function Install-SplunkForwarder ()
+{
+    Write-InstallLog -logstring "$(Get-DTG) - [Function: Install-SplunkForwarder]"
+    $splunkmsi = $fileshare+"share\splunk*.msi"
+    #Write-InstallLog -logstring "$(Get-DTG) - User: $splunku Password: $splunkp Receiving Index: $rindex"
+    $msitest = Test-Path -Path $splunkmsi
+    if($msitest)
+    {
+        Start-Process -FilePath $splunkmsi –Wait -Verbose –ArgumentList "AGREETOLICENSE=yes SPLUNKUSERNAME=`"$($splunkU)`" SPLUNKPASSWORD=`"$($splunkP)`" RECEIVING_INDEXER=`"$($rindex)`" WINEVENTLOG_APP_ENABLE=1 WINEVENTLOG_SEC_ENABLE=1 WINEVENTLOG_SYS_ENABLE=1 WINEVENTLOG_FWD_ENABLE=1 WINEVENTLOG_SET_ENABLE=1 ENABLEADMON=1 PERFMON=network /quiet"
+        Write-InstallLog -logstring "$(Get-DTG) - Splunk Forwarder has been installed"
+    } else {
+        Write-ErrorLog -logstring "$(Get-DTG) - Splunk Universal Forwarder msi is not found."
+        exit
+    }
+}
+
+Function Install-Sysmon ()
+{
+    Write-InstallLog -logstring "$(Get-DTG) - [Function: Install-Sysmon]"                              # Log it
+    
+    $sysmonexe = $fileshare+"share\sysmon64.exe"
+    $sysmonconf = $fileshare+"share\sysmonconfig-export.xml"
+    
+    $sysmontest = Test-Path -Path $sysmonexe
+    $sysmonconftest = Test-Path -Path $sysmonconf
+    
+    If(($sysmontest) -and ($sysmonconftest))
+    {
+        if((get-process "sysmon64" -ea SilentlyContinue) -eq $Null)                                  # Check if sysmon is already running, if no:
+        { 
+            New-Item -Path $env:ProgramFiles -Name Sysmon -ItemType Directory -Force | Out-Null      # Create the system directory in c:\Program Files
+            $sysmon = $fileshare+"Share\sysmon64.exe"                                                # Define variable for remote path to the executable
+            $sysmonconf = $fileshare+"Share\sysmonconfig-export.xml"                                 # Define variable for remote path to the config
+            Copy-Item $sysmon -Destination $env:ProgramFiles\Sysmon -Force                           # Copy the executable from the share
+            Copy-Item $sysmonconf -Destination $env:ProgramFiles\Sysmon\ -Force                      # Copy the config from the share
+            & $env:ProgramFiles\Sysmon\sysmon64.exe -i $env:ProgramFiles\Sysmon\sysmonconfig-export.xml -accepteula > $null  # Run Sysmon with the specified config, accepting the EULA and outputing to $null
+            if((get-process "sysmon64" -ea SilentlyContinue) -eq $Null)                              # Checks if Sysmon started correctly
+            { 
+                Write-Host "Sysmon Not Running"
+                Write-ErrorLog -logstring "$(Get-DTG) - Sysmon failed to start"                            # Logs it having failed
+            } else {
+                Write-InstallLog "$(Get-DTG) - Sysmon running"                                             # Logs it running successfully
+            } 
+        } else { 
+            & $env:ProgramFiles\Sysmon\sysmon64.exe -u > $null                                       # Checked if sysmon was running and yes
+            $sysmon = $fileshare+"Share\sysmon64.exe"                                                # Defines variable for remote path to the executable
+            $sysmonconf = $fileshare+"Share\sysmonconfig-export.xml"                                 # Defines variable for remote path to the config
+            Copy-Item $sysmon -Destination $env:ProgramFiles\Sysmon -Force                           # Copy the executable from the share
+            Copy-Item $sysmonconf -Destination $env:ProgramFiles\Sysmon\ -Force                      # Copy the config from the share
+            & $env:ProgramFiles\Sysmon\sysmon64.exe -i $env:ProgramFiles\Sysmon\sysmonconfig-export.xml -accepteula > $null  # Run Sysmon with the specified config, accepting the EULA and outputting t $null
+            if((get-process "sysmon64" -ea SilentlyContinue) -eq $Null)                              # Checks if Sysmon started correctly
+            { 
+                Write-Host "Sysmon Not Running"                                  
+                Write-ErrorLog -logstring "$(Get-DTG) - Sysmon failed to start"                            # Logs it having failed
+            } else {
+                Write-InstallLog "$(Get-DTG) - Sysmon running"                                             # Logs it running successfully
+            }
+        }
+    } else {
+        Write-ErrorLog -logstring "$(Get-DTG) - Sysmon64 and sysmonconfig not found"
+        exit
+    }
+     
+   
+}
+
+Function Restart-Splunk ()
+{
+    Write-InstallLog -logstring "$(Get-DTG) - [Function: Restart-Splunk]"
+    #Stop-Service SplunkForwarder 
+    $testsplunk = Get-Service SplunkForwarder
+    If(($testsplunk).Status -eq 'Running')
+    {
+        #Restart-Service SplunkForwarder
+        & "C:\program files\splunkuniversalforwarder\bin\splunk.exe" "restart" > $null
+        #Start-Service SplunkForwarder
+        $testsplunk1 = Get-Service SplunkForwarder
+        if(($testsplunk1).Status -eq 'Running')
+        {
+            Write-InstallLog -logstring "$(Get-DTG) - Splunk Forwarder has been restarted successfully"
+        } else {
+            Write-ErrorLog -logstring "$(Get-DTG) - Splunk Universal Forwarder could not be started"
+            exit
+        }
+    } else {
+        & "C:\program files\splunkuniversalforwarder\bin\splunk.exe" "start" > $null
+        $testsplunk2 = Get-Service SplunkForwarder
+        if(($testsplunk2).Status -eq 'Running')
+        {
+            Write-InstallLog -logstring "$(Get-DTG) - Splunk Forwarder has been restarted successfully"
+        } else {
+            Write-ErrorLog -logstring "$(Get-DTG) - Splunk Universal Forwarder could not be started"
+            Write-Host "exit"
+        }
+    }
+}
+
+Write-InstallLogHead -logstring "------------------------------------------------------------"
+Write-InstallLogHead -logstring "|Splunk Universal Forwarder installation script Install log|"
+Write-InstallLogHead -logstring "------------------------------------------------------------`n"
+Write-ErrorLogHead -logstring "----------------------------------------------------------"
+Write-ErrorLogHead -logstring "|Splunk Universal Forwarder installation script Error log|"
+Write-ErrorLogHead -logstring "----------------------------------------------------------`n"
+
+Write-InstallLog -logstring "$(Get-DTG) - This is a test"
+sleep 2
+Write-InstallLog -logstring "$(Get-DTG) - This is a test"
+Write-Host "Installing Splunk Universal Forwarder and Sysmon.`nThis will take a couple of minutes."
+Test-SplunkForwarder
+Test-SMBConnection
+Check-ConfHash
+Install-Sysmon
+Restart-Splunk
+Write-Host "Splunk Universal Forwarder and Sysmon have been installed"
