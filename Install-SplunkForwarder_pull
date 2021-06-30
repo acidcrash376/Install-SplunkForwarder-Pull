@@ -2,28 +2,40 @@
 <#
 .SYNOPSIS
   A script to install Splunk Universal Forwarder and Sysmon
+
 .DESCRIPTION
   This script is to be deployed by GPO and install both Splunk Universal Forwarder and Sysmon.
   By default, your Splunk Forwarder installer should be named splunkforwarder.msi. You will require a directory in root of C:\
   called Share. Place the splunkforwarder.msi, sysmon64.exe sysmonconfig-export.xml, inputs.conf and outputs.conf in c:\Share
   This path can be changed by the $fileshare variable.
+
 .INPUTS
   None
+
 .OUTPUTS
   None
+
 .NOTES
-  Version:        1.0.3.beta
+  Version:        1.0.4.beta
   Author:         Acidcrash376
   Creation Date:  23/06/2021
-  Last Update:	  24/06/2021
-  Purpose/Change: Initial release for testing
+  Last Update:	  30/06/2021
+  Purpose/Change: Small tweaks to allow remote execution
   Web:            https://github.com/acidcrash376/TBC
+
+.PARAMETER Verbosemode 
+  Not Required
+  No value required. Enables Verbose output for the script.
+
 .EXAMPLE
   ./Install-SplunkForwarder.ps1
+
+.EXAMPLE
+  ./Install-SplunkForwarder.ps1 -Verbosemode
+
+
 .TODO
-  -Fix the dtg variable to update at each stage rather than static dtg
-  -Add verbose optional output
-  -Change variables to read from files instead
+  - Allow alternate filenames
 #>
 
 Param([switch] $verbosemode )
@@ -37,12 +49,12 @@ if ($verbosemode -eq $true)
 ########################
 # Edit these variables #
 ########################
-$ErrorLogfile = "\\localhost\c$\$(gc env:computername)\Error.log"         # Path for Error Log, edit the path
-$InstallLogfile = "\\localhost\c$\$(gc env:computername)\Install.log"     # Path for Install Log, edit the path
-$fileshare = "\\localhost\c$\Share\"                                      # Path for fileshare, edit the path
+$fileshare = "\\dc\Tools\"                                                # Path for fileshare, edit the path
+$ErrorLogfile = $fileshare+"$(gc env:computername)\Error.log"             # Path for Error Log, edit the path
+$InstallLogfile = $fileshare+"$(gc env:computername)\Install.log"         # Path for Install Log, edit the path
 $SplunkU = "splunk"                                                       # Define the local Splunk management user
 $SplunkP = "password"                                                     # Define the local Splunk management user password
-$rindex = "127.0.0.1:9997"                                                # Define the Splunk indexer IP and port
+$rindex = "127.0.0.1:9997"                                               # Define the Splunk indexer IP and port
 #########################
 # Don't edit after here #
 #########################
@@ -51,34 +63,34 @@ $rindex = "127.0.0.1:9997"                                                # Defi
 Function Write-ErrorLogHead
 {
    Param ([string]$logstring)
-   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   New-Item -Path $fileshare -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
    Add-content $ErrorLogfile -value $logstring
 }
 
 Function Write-InstallLogHead
 {
    Param ([string]$logstring)
-   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   New-Item -Path $fileshare -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
    Add-content $InstallLogfile -value $logstring
 }
 
 Function Write-ErrorLog
 {
    Param ([string]$logstring)
-   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   New-Item -Path $fileshare -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
    Add-content $ErrorLogfile -value $logstring
 }
 
 Function Write-InstallLog
 {
    Param ([string]$logstring)
-   New-Item -Path "c:\" -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
+   New-Item -Path $fileshare -Name "$(gc env:computername)" -ItemType "directory" -Force | Out-Null
    Add-content $InstallLogfile -value $logstring
 }
 
 Function Get-DTG
 {
-    $(((Get-Date).ToUniversalTime()).ToString("yyyy-MM-dd HH:mm:ss.fffZ")) # Date Time Group suffix for logging, YYYY-MM-DD HH:mm:ss Zulu time
+    $(((Get-Date).ToUniversalTime()).ToString("yyyy-MM-dd HH:mm:ss.fffZ"))                       # Date Time Group suffix for logging, YYYY-MM-DD HH:mm:ss Zulu time
 }
 
 Function Test-SplunkForwarder () 
@@ -115,11 +127,11 @@ Function Test-SMBConnection ()
 Function Check-ConfHash ()
 {                                                           
     Write-InstallLog -logstring "$(Get-DTG) - [Function: Check-ConfHash]"
-    $inputsconf = $fileshare+'inputs.conf'                                                 # Define the variable for the fileshare path to inputs.conf
+    $inputsconf = $fileshare+'inputs.conf'                                                       # Define the variable for the fileshare path to inputs.conf
     $srvInputsHash = Get-FileHash -Path $inputsconf -Algorithm SHA256                            # SHA256 Hash the inputs.conf on the 
     Write-InstallLog -logstring "$(Get-DTG) - $srvInputsHash"                                    # Log the hash
 
-    $Outputsconf = $fileshare+'Outputs.conf'                                               # Define the variable for the fileshare path to outouts.conf
+    $Outputsconf = $fileshare+'Outputs.conf'                                                     # Define the variable for the fileshare path to outouts.conf
     $srvOutputsHash = Get-FileHash -Path $Outputsconf -Algorithm SHA256                          # SHA256 Hash the outputs.conf on the fileshare 
     Write-InstallLog -logstring "$(Get-DTG) - $srvOutputsHash"                                   # Log the hash
 
@@ -199,8 +211,7 @@ Function Check-ConfHash ()
 Function Install-SplunkForwarder ()
 {
     Write-InstallLog -logstring "$(Get-DTG) - [Function: Install-SplunkForwarder]"
-    $splunkmsi = $fileshare+"splunk*.msi"                                                        # Concatanate the fileshare and the filename for the Installer
-    #Write-InstallLog -logstring "$(Get-DTG) - User: $splunku Password: $splunkp Receiving Index: $rindex"
+    $splunkmsi = $fileshare+"splunkforwarder.msi"                                                # Concatanate the fileshare and the filename for the Installer
     $msitest = Test-Path -Path $splunkmsi                                                        # Test the patch exists
     if($msitest)                                                                                 # If yes, install splunk with the following values
     {
@@ -300,7 +311,7 @@ Function Restart-Splunk ()
         } else {
             Write-Verbose "Splunk has failed to start"
             Write-ErrorLog -logstring "$(Get-DTG) - Splunk Universal Forwarder could not be started" # Splunk has failed to start, log it and exit script
-            Write-Host "exit"
+            exit
         }
     }
 }
