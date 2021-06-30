@@ -12,12 +12,12 @@ Computer Configuration > Preferences > Control Panel Settings > Scheduled Task
 - New Task
 - New Immediate Task (Windows 7)
 
-##### General
+#### General
   Name: Install-SplunkForwarder
   User: <yourdomain>\<your account with install privileges>
-##### Actions
+#### Actions
   Script: \\Path\To\Your\batchfile.bat
-##### Common
+#### Common
   Apply once and do not reapply
   
 Apply the GPO to the appropriate Org Unit, then either Gpupdate /force or let the Group Policy sync itself over time
