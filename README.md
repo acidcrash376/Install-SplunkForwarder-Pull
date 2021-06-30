@@ -18,6 +18,6 @@ Computer Configuration > Preferences > Control Panel Settings > Scheduled Task
 ### Actions
   Script: \\Path\To\Your\batchfile.bat
 ### Common
-  Apply once and do not reapply
+  [x] Apply once and do not reapply
   
 Apply the GPO to the appropriate Org Unit, then either Gpupdate /force or let the Group Policy sync itself over time
