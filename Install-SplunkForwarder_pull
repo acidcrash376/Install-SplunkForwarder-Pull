@@ -16,12 +16,12 @@
   None
 
 .NOTES
-  Version:        1.0.4.beta
+  Version:        1.0.4.RC1
   Author:         Acidcrash376
   Creation Date:  23/06/2021
   Last Update:	  30/06/2021
-  Purpose/Change: Small tweaks to allow remote execution
-  Web:            https://github.com/acidcrash376/TBC
+  Purpose/Change: Release Candidate 1
+  Web:            https://github.com/acidcrash376/Install-SplunkForwarder-Pull
 
 .PARAMETER Verbosemode 
   Not Required
@@ -49,12 +49,12 @@ if ($verbosemode -eq $true)
 ########################
 # Edit these variables #
 ########################
+$ErrorLogfile = "\\dc\Tools\$(gc env:computername)\Error.log"             # Path for Error Log, edit the path
+$InstallLogfile = "\\dc\Tools\$(gc env:computername)\Install.log"         # Path for Install Log, edit the path
 $fileshare = "\\dc\Tools\"                                                # Path for fileshare, edit the path
-$ErrorLogfile = $fileshare+"$(gc env:computername)\Error.log"             # Path for Error Log, edit the path
-$InstallLogfile = $fileshare+"$(gc env:computername)\Install.log"         # Path for Install Log, edit the path
 $SplunkU = "splunk"                                                       # Define the local Splunk management user
 $SplunkP = "password"                                                     # Define the local Splunk management user password
-$rindex = "127.0.0.1:9997"                                               # Define the Splunk indexer IP and port
+$rindex = "192.168.59.201:9997"                                           # Define the Splunk indexer IP and port
 #########################
 # Don't edit after here #
 #########################
